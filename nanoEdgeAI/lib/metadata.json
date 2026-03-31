@@ -1,0 +1,100 @@
+{
+    "accelerators": [],
+    "algorithm_type": "classifier",
+    "class_names": [
+        "OndaTriangular",
+        "OndaSinusoidal",
+        "OndaCuadrada"
+    ],
+    "commit": "HEAD",
+    "compilation_date": "2026-03-31T06:01:26.797213",
+    "compilation_flags": {
+        "float_abi": "hard",
+        "fshort_enums": true,
+        "short_wchar": false
+    },
+    "compilation_str": "{'compilation_dict':{'request_type':'library','api':{'env':'PROD','version':'v3'},'version':{'web_api':{'env':'PROD','version':'v3'},'local_api':{'version':'2026.03.05.0','platform':'win64'},'studio':'5.1.1'},'compilation_flags':{'float_abi':'hard','short_wchar':false,'fshort_enums':true,'use_knowledge':false},'mcu':'cortex-m33_st_stm32u5_nucleo-u575zi-q','sensor':'','accelerators':[],'request_origin':'manual','algorithm_type':'classifier','lib_version':'v3_3938dd5','info':{'progression':{'evals_done':20000,'optimization_progress':1.0,'elapsed_time':2301,'cpu_info':{'cpu_nb_cores':16,'cpu_nb_cores_for_optimization':11},'state':'finished'},'max_ram':786000,'max_flash':2048000,'optimization_global_id':'b4ab05c1bde87b818aa375217b50296f','version':{'local_api':'2026.03.05.0','studio':'5.1.1'},'creation_date':'2026-03-31T05:20:33+00:00'},'class_names':'OndaTriangular,OndaSinusoidal,OndaCuadrada','results':[{'result_id':8,'combination':{'type':'classification','name':'SVM','params':{'c':0.12866747516699206,'beta':5.0,'tmp_dir_path':null},'preprocessing_chain':[{'detrend':{'method':'average'}},{'pca':{'explained_variance':0.98}}]},'model':null,'performance':{'performance':{'score':0.99,'main_kpi':1.0},'memory_usage':{'estimated_ram':544,'estimated_flash':1596,'estimated_flash_knowledge':null}},'learning_min_lines':null,'knowledge':'eNrNVsmuq0gS_ZXWXTdPzENLtQBswGCDmcxQekJpSAyYeYan--_t61KVqrtVXbXoRS_jKCMyIjLjxPnx0faw7ZsYDkNePz7-8beff3wkcOxhnbyMHx953U5jlOQVrIe8qd9YHQ2gaks4vCycov7-txeSQjBO_RvCcPYNxRmoa1i-oc8X0kzj_yxW3NQjXMeXWU9l-QIqOGbNV8ofYIY9eMCPz9e5Hx9tDP4f6sD_pIofH8MIxuGX_sdN1TY1rN_26znA-FXDh0IOJ_6shhv-FKPVvxa3qyOYvEwaJk2fKHs-mAvZMYnqFOtVuUL7HBJbE6QY313svUGOg3wShItlZUtjsmzSMc9Kpbeq8YiD6TFhEBg7k6LSyqLO2BSJ7kVxkqF12JzypLVytY25iJUcBBUPunVKmJrrlnLwROZcJl3R-XJ2pYdUk3kl1wUEFFFvJUocQ9zMbgqaWmOliQcVtyp5yj1VTUx7mvk6YBrLbB9lbqEnPmYTDlFgy1_q-p4vbXw5s3PmjkmhQ0KeeWshx7jiPLOtrGzVCEl5HtyJQk4B187PBhC3DmqHcFlIrppbbA5dPHtu8rna2eGZG0qaLpQWi-6UH9LK5FY4occQbYr92ixbA0RN8nJRnpmFsDpzsg8xDCArGSwaQxGeZN9KsRjUB0vtvT1qNMlCaTCJ63lFy5LnZgQT-dCYit4BBbk0mn9B9hNuJCK1Xgg2I61yc5FIcnoLIZ6GBvBM4-ODqHPQdCpCzCbM9S0vm4WBGSrWGJ-iUeumbU4iLjb7I22vqKVm66xwRZ6d776IV7NsI66cKqGaI3Qd4WMLg2y1e4UDWz23-8759PpkygQgfRDSxmO9ILqubSNu3GuZ0sK6HPeUNnQ2PQmF5ErTtGI5OxpRtxUiCU4NwG4W09DXWCeTcHSVk0PueszkUYTc07PJnRp2ZvAEyYLBqELiDnM0vh_StSwdpStjoEl9uDCqKKyGm7RgGkptn4O5prYtvnK-IHWe-sRnjFNHMDkKdtLYmxSdc0a6y_dnWZJIGLSP7QqfyIwSjY8dDfisxwoP4672VyvGhkm27kXh8W1q3OT7KXCeeYKolz1ebBitW6cJ2enG4926lHnahYXdrZ5aeL0gx6Rbt4svUgxmB-cmUFdz9jdvAU_-EmFG2KAhTP1bPLd-D68dv-vQvVX3hMCZHVxI3T7cL7R3y_CZZXuJGcw89kgcWdAuvglJfpO0Q7VUI6Jh54LKvON2bmurWD1DIPGTO_SWe94SNLj7ysM9srPURjMJbpqAIj3jr9xEuUWbM1CUZpIZj0Y9Ys9gXoxrOg6vLwgTVbjHS0_50sm73UN3fzWQnUXdhdFBuvUzFx8zB5sFOaldsHeUo9zu_kwTMj84bSI2hVoYMVApvEHWGWH4qMi8xqKMm2EjKhago2d2ZE9Z2t7jXXBL-yrWUs5WM1vf80AdQmo1Y-hO8UYeoaENT5qiT4hx3_oifcb0hnjlPN7qek7aHWt1Ds-NHhRNdYigvmUIQ1ICp1qe4rauKZhtFgFSVghIBBPLXcEqHLflbuTHvb5IgHDqRrDH54MjmvJqPSyoEQiPUNJ4UXje5Hn-p58-XqyajFsLvwgzLRswEvgXNmTgjf38IuIXr39_k2_12n3DAJOonqp2i0Dfg-11Zuwn-PleKaD-YwJeiCuBjg5vmXwgJ3uoiXtheRT9rIGrpRKQhXItHrWGcc_Jfq6Pem1sj-_CGBMsh_MuFYFJ4pA-HmO2OG52VDbzfngNRYtZJV4KOMuD3aqG2DjimVxgkQnTxnY25IEINbvJyHHZNl0Z04m8wmu1bYMBzjblXV0BGnhUmEN_9NFVVsaqpHxV3YO4EkcHlrRUhtROK1uLOu2h1TMpHIUjTQhdFp2Fo4CSMzr0uqy7F9UuJo_2pG2MXF3C813bZCUJOyJv7pMBCj7E3Cxo7w8k6uxa6FUzpTyhr8haOnFs-CCl2D3zqG2rxyU5L6eFCbDHEDqX3mRvlSDXy2Fnl41ltllsAx7oRIflQlMIZa_jyosOqwiepp6Y0sN0M1lvvlEodh1WZMNPDn7JIvVpD4bylC7UnPd70bFCiW5H77oklA2TmqJE3_FdeJi8hFAukme9mCkdiSPDojJRUf5l1nvuNsyY8XCeUOauUSSlsds9CQ0Tj_YBPvLWmDT3gpysa9xL25NR8iuBmzbV05zt2a2yT6S9u2sHjfWkB-MujEy0NeLBzlztbnVDHS3ngL5Qw4E7L6hLHboOl4_r8FqCmdmcs8IRAoX0szXbBVo5hqVylJKMuphnI3h41vnoh6mLX0EXu5yC9xaGWzKgYj0JWTNCVqwBvvNg6MLv12U_cWcalYb9FCw3yzQZ6Uoe1oxhmIHnHzz_p8PxVyfjpWR-L1Hwz-9fKFzbEuT1y2sGfQ7q-Csm-o1jPz-_olZNAstfpE7-qEEZlbD-TWX9XkxhL_sXuTbkO_xVPE1VFJfgldTXjcQLucP3VFLf0HfKME3zOP_vogmb1rte4RrnMecDtcS37rjdo7SetSYh5ig7ogwv3-_k4Ri82OTP-0X_pW69087THPa_6TuYRk2aDvBL-qHvckfYx7D9shHmG0egLMbSNEtSFM3SEEG5t5j9V0f83x2xbyyFcixFcyxKsjT5R47kf95IYRzDsBTD0ChO09Tb8fuvuUc1qN5t__nDqBPgfD3uYypB_9WML8TO62lo8gSUvyLiBJIeJODj--fnPwELVhnv','knowledge_dat':null,'commit_tag_used':'v3_3938dd5'}],'data':{'nb_cols':128,'nb_lines':[[{'file_type':'class','nb_lines':78},{'file_type':'class','nb_lines':73},{'file_type':'class','nb_lines':104}]]},'toolchain_type':'gcc','only_emulators':false},'sign':158598,'license_key':'***'}",
+    "compile_emulators": true,
+    "compile_library": true,
+    "data": {
+        "nb_cols": 128,
+        "nb_lines": [
+            [
+                {
+                    "file_type": "class",
+                    "nb_lines": 78
+                },
+                {
+                    "file_type": "class",
+                    "nb_lines": 73
+                },
+                {
+                    "file_type": "class",
+                    "nb_lines": 104
+                }
+            ]
+        ]
+    },
+    "learning_min_lines": null,
+    "lib_limited": false,
+    "library_id": "69cb6336c369032cb04cb386",
+    "library_md5sum": "e72b1366988965ad4f21eee04761887d",
+    "mcu": "cortex-m33_st_stm32u5_nucleo-u575zi-q",
+    "mcu_cpn": "NUCLEO-U575ZI-Q",
+    "mcu_display_name": "NUCLEO-U575ZI-Q - STMicroelectronics",
+    "mcu_family": "STM32U5 Series",
+    "mcu_group": "demo",
+    "mcu_type": "cortex-m33",
+    "mcu_vendor": "STMicroelectronics",
+    "optimization_info": {
+        "creation_date": "2026-03-31T05:20:33+00:00",
+        "max_flash": 2048000,
+        "max_ram": 786000,
+        "optimization_global_id": "b4ab05c1bde87b818aa375217b50296f",
+        "progression": {
+            "cpu_info": {
+                "cpu_nb_cores": 16,
+                "cpu_nb_cores_for_optimization": 11
+            },
+            "elapsed_time": 2301,
+            "evals_done": 20000,
+            "optimization_progress": 1.0,
+            "state": "finished"
+        },
+        "version": {
+            "local_api": "2026.03.05.0",
+            "studio": "5.1.1"
+        }
+    },
+    "performance": {
+        "memory_usage": {
+            "estimated_flash": 1596,
+            "estimated_flash_knowledge": null,
+            "estimated_ram": 544
+        },
+        "performance": {
+            "main_kpi": 1.0,
+            "score": 0.99
+        }
+    },
+    "request_type": "library",
+    "sensor": "",
+    "studio_info": {
+        "local_api": {
+            "platform": "win64",
+            "version": "2026.03.05.0"
+        },
+        "studio": "5.1.1",
+        "web_api": {
+            "env": "PROD",
+            "version": "v3"
+        }
+    },
+    "toolchain_version": "arm-none-eabi-gcc (Arm GNU Toolchain 13.2.rel1 (Build arm-13.7)) 13.2.1 20231009",
+    "user_info": {
+        "company": "Universidad Nacional De La Patagonia Austral",
+        "email": "mati93_o@hotmail.com",
+        "first_name": "Matias Javier",
+        "last_name": "Oliva"
+    }
+}
