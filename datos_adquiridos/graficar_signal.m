@@ -4,7 +4,7 @@
 
 clc; clear; close all;
 
-filename = 'datos_sinusoidal.txt';
+filename = 'datos_triangular_2.txt';
 
 %% Leer y parsear bloques JSON
 fid = fopen(filename, 'r');

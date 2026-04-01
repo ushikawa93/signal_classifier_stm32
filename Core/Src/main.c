@@ -41,6 +41,14 @@
 
 #define MODE CLASSIFY_MODE
 
+// Valores para DAC y ADC:
+#define ADC_SAMP_FREQ 100
+#define DAC_SIGNAL_FREQ_INICIAL 4
+#define PRESCALER 199
+#define CLK 4000000
+
+#define N_FREQS 4
+#define PERIOD_TIMER_ADC  (CLK / ((PRESCALER + 1) * ADC_SAMP_FREQ)) - 1
 
 /* USER CODE END PD */
 
@@ -68,7 +76,10 @@ const uint32_t signal_cuadrada[128]   = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
 const uint32_t signal_triangular[128] = {1,33,65,97,129,161,193,225,257,289,321,353,385,417,449,481,513,545,577,609,641,673,705,737,769,801,833,865,897,929,961,993,1025,1057,1089,1121,1153,1185,1217,1249,1281,1313,1345,1377,1409,1441,1473,1505,1537,1569,1601,1633,1665,1697,1729,1761,1793,1825,1857,1889,1921,1953,1985,2017,2049,2081,2113,2145,2177,2209,2241,2273,2305,2337,2369,2401,2433,2465,2497,2529,2561,2593,2625,2657,2689,2721,2753,2785,2817,2849,2881,2913,2945,2977,3009,3041,3073,3105,3137,3169,3201,3233,3265,3297,3329,3361,3393,3425,3457,3489,3521,3553,3585,3617,3649,3681,3713,3745,3777,3809,3841,3873,3905,3937,3969,4001,4033,4065};
 
 const uint32_t *signals[3] = { signal_sen, signal_cuadrada, signal_triangular };
-volatile uint8_t signal_idx = 0; // 0, 1 o 2
+volatile uint8_t signal_idx = 2; // 0, 1 o 2
+
+volatile uint32_t boton_press_tick = 0;
+volatile uint8_t boton_presionado = 0;
 
 uint32_t muestras_0[128];
 uint32_t muestras_1[128];
@@ -76,6 +87,13 @@ uint32_t tiempo;
 uint32_t temp_flag;
 uint8_t buffer_actual;
 uint8_t buffer_completo;
+
+
+const uint32_t frecuencias_dac[] = {2, 4, 8, 16};
+volatile uint8_t freq_idx = 0; // arranca en 4Hz (índice 1)
+
+// Periodo del timer del dac considerando 128 Muestras x ciclo
+int getTIMER_DAC(int signal_freq){  return (CLK / ((PRESCALER + 1) * signal_freq * 128)) - 1;}
 
 /* USER CODE END PV */
 
@@ -249,6 +267,31 @@ int main(void)
 			temp_flag=0;
 		}
 	#endif
+
+
+	// Detección de pulsación corta vs larga
+	if(boton_presionado && !BSP_PB_GetState(BUTTON_USER))
+	{
+		boton_presionado = 0;
+		uint32_t duracion = HAL_GetTick() - boton_press_tick;
+
+		if(duracion > 1000)
+		{
+			// Pulsacion larga cambia forma de onda
+			signal_idx = (signal_idx + 1) % 3;
+		}
+		else
+		{
+			// Pulsacion corta cambia frecuencia
+			freq_idx = (freq_idx + 1) % N_FREQS;
+
+			// Cambio de frecuencia el timer del DAC:
+			HAL_TIM_Base_Stop_IT(&htim2);
+			__HAL_TIM_SET_AUTORELOAD(&htim2, getTIMER_DAC(frecuencias_dac[freq_idx]));
+			__HAL_TIM_SET_COUNTER(&htim2, 0);
+			HAL_TIM_Base_Start_IT(&htim2);
+		}
+	}
 
   }
   /* USER CODE END 3 */
@@ -491,7 +534,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 99;
+  htim2.Init.Prescaler = 199;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 199;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -512,6 +555,8 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM2_Init 2 */
+
+  __HAL_TIM_SET_AUTORELOAD(&htim2, getTIMER_DAC(frecuencias_dac[freq_idx]));
 
   /* USER CODE END TIM2_Init 2 */
 
@@ -557,6 +602,8 @@ static void MX_TIM3_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM3_Init 2 */
+
+  __HAL_TIM_SET_AUTORELOAD(&htim3, PERIOD_TIMER_ADC);
 
   /* USER CODE END TIM3_Init 2 */
 
@@ -641,11 +688,17 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 void BSP_PB_Callback(Button_TypeDef Button)
-{
+{/*
     if(Button == BUTTON_USER)
     {
         signal_idx = (signal_idx + 1) % 3;
-    }
+    }*/
+    if(Button == BUTTON_USER)
+        {
+            boton_press_tick = HAL_GetTick();
+            boton_presionado = 1;
+        }
+
 }
 
 static char* convertir_a_tiempo (int s)
