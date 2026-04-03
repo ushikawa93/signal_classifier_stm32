@@ -24,6 +24,7 @@
 
 #include <stdlib.h>
 #include "NanoEdgeAI.h"
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -39,7 +40,7 @@
 #define CLASSIFY_MODE 1
 #define CRONOMETER_MODE 2
 
-#define MODE CLASSIFY_MODE
+#define MODE CAPTURE_MODE
 
 // Valores para DAC y ADC:
 #define ADC_SAMP_FREQ 100
@@ -62,12 +63,18 @@
 
 COM_InitTypeDef BspCOMInit;
 ADC_HandleTypeDef hadc1;
+DMA_NodeTypeDef Node_GPDMA1_Channel1;
+DMA_QListTypeDef List_GPDMA1_Channel1;
+DMA_HandleTypeDef handle_GPDMA1_Channel1;
 
 DAC_HandleTypeDef hdac1;
+DMA_NodeTypeDef Node_GPDMA1_Channel0;
+DMA_QListTypeDef List_GPDMA1_Channel0;
+DMA_HandleTypeDef handle_GPDMA1_Channel0;
 
 TIM_HandleTypeDef htim2;
-TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
+TIM_HandleTypeDef htim15;
 
 /* USER CODE BEGIN PV */
 
@@ -76,20 +83,20 @@ const uint32_t signal_cuadrada[128]   = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
 const uint32_t signal_triangular[128] = {1,33,65,97,129,161,193,225,257,289,321,353,385,417,449,481,513,545,577,609,641,673,705,737,769,801,833,865,897,929,961,993,1025,1057,1089,1121,1153,1185,1217,1249,1281,1313,1345,1377,1409,1441,1473,1505,1537,1569,1601,1633,1665,1697,1729,1761,1793,1825,1857,1889,1921,1953,1985,2017,2049,2081,2113,2145,2177,2209,2241,2273,2305,2337,2369,2401,2433,2465,2497,2529,2561,2593,2625,2657,2689,2721,2753,2785,2817,2849,2881,2913,2945,2977,3009,3041,3073,3105,3137,3169,3201,3233,3265,3297,3329,3361,3393,3425,3457,3489,3521,3553,3585,3617,3649,3681,3713,3745,3777,3809,3841,3873,3905,3937,3969,4001,4033,4065};
 
 const uint32_t *signals[3] = { signal_sen, signal_cuadrada, signal_triangular };
-volatile uint8_t signal_idx = 2; // 0, 1 o 2
+volatile uint8_t signal_idx = 0; // 0, 1 o 2
 
 volatile uint32_t boton_press_tick = 0;
 volatile uint8_t boton_presionado = 0;
 
-uint32_t muestras_0[128];
-uint32_t muestras_1[128];
+
+uint32_t adc_buf[256];
 uint32_t tiempo;
 uint32_t temp_flag;
 uint8_t buffer_actual;
 uint8_t buffer_completo;
 
 
-const uint32_t frecuencias_dac[] = {2, 4, 8, 16};
+const uint32_t frecuencias_dac[] = {1, 2, 8, 16};
 volatile uint8_t freq_idx = 0; // arranca en 4Hz (índice 1)
 
 // Periodo del timer del dac considerando 128 Muestras x ciclo
@@ -100,13 +107,14 @@ int getTIMER_DAC(int signal_freq){  return (CLK / ((PRESCALER + 1) * signal_freq
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void SystemPower_Config(void);
+static void MX_GPDMA1_Init(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_DAC1_Init(void);
-static void MX_ICACHE_Init(void);
-static void MX_TIM2_Init(void);
-static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_ICACHE_Init(void);
+static void MX_TIM15_Init(void);
 /* USER CODE BEGIN PFP */
 
 static char * convertir_a_tiempo(int s);
@@ -149,13 +157,14 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
+  MX_GPDMA1_Init();
   MX_GPIO_Init();
   MX_ADC1_Init();
   MX_DAC1_Init();
-  MX_ICACHE_Init();
-  MX_TIM2_Init();
-  MX_TIM3_Init();
   MX_TIM4_Init();
+  MX_TIM2_Init();
+  MX_ICACHE_Init();
+  MX_TIM15_Init();
   /* USER CODE BEGIN 2 */
 
   neai_classification_init();
@@ -186,14 +195,18 @@ int main(void)
 
   printf("\n\n\r --------- Comienzo de programa --------- \n\n\r");
 
-  // DAC: configurado en un timer!
-  HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
-  HAL_TIM_Base_Start_IT(&htim2);
+  // DAC: Configurado por DMA
+  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1,
+                    (uint32_t*)signals[signal_idx], 128, DAC_ALIGN_12B_R);
+  HAL_TIM_Base_Start(&htim2);
 
-  // ADC: configurado en otro timer!
+  // ADC: configurado por DMA
   buffer_actual = 0;
   buffer_completo = 0;
-  HAL_TIM_Base_Start_IT(&htim3);
+
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buf, 256);
+  HAL_TIM_Base_Start(&htim15);
+
 
   // Cronometro por interrupciones:
   tiempo = 0;
@@ -206,27 +219,22 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-
 	/* MODO DE CAPTURA DE DATOS... Para entrenar NanoEdgeAI */
 	#if MODE == CAPTURE_MODE
 
 		if(buffer_completo == 1){
-			char *t = convertir_a_tiempo(tiempo);
 
-			printf("\r\n { \"ts\":%s , \"Muestras\": ",t);
-			if(buffer_actual == 1)
-			{
-				for(int i =0; i < 128;i++){
-					printf("%lu, ", muestras_0[i]);
-				}
-			}
-			else{
-				for(int i =0; i < 128;i++){
-					printf("%lu, ", muestras_1[i]);
-				}
+		    uint32_t buffer_copia[128];
+		    uint32_t *ptr = (buffer_actual == 1) ? &adc_buf[0] : &adc_buf[128];
+		    memcpy(buffer_copia, ptr, 128 * sizeof(uint32_t));
+		    buffer_completo = 0;
+		    char *t = convertir_a_tiempo(tiempo);
+
+		    printf("\r\n { \"ts\":%s , \"Muestras\": ",t);
+			for(int i =0; i < 128;i++){
+				printf("%lu, ", buffer_copia[i]);
 			}
 			printf("}\n");
-			buffer_completo = 0;
 		}
 
 
@@ -242,13 +250,13 @@ int main(void)
 			{
 				for(int i = 0; i < 128; i++)
 				{
-				    input_float[i] = (float)muestras_0[i];
+				    input_float[i] = (float)adc_buf[i];
 				}
 
 			}else{
 				for(int i = 0; i < 128; i++)
 				{
-					input_float[i] = (float)muestras_1[i];
+					input_float[i] = (float)adc_buf[i+128];
 				}
 			}
 			char *t = convertir_a_tiempo(tiempo);
@@ -278,7 +286,11 @@ int main(void)
 		if(duracion > 1000)
 		{
 			// Pulsacion larga cambia forma de onda
+
 			signal_idx = (signal_idx + 1) % 3;
+			HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+			HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1,
+			                  (uint32_t*)signals[signal_idx], 128, DAC_ALIGN_12B_R);
 		}
 		else
 		{
@@ -383,6 +395,8 @@ static void MX_ADC1_Init(void)
 
   /* USER CODE END ADC1_Init 0 */
 
+  ADC_ChannelConfTypeDef sConfig = {0};
+
   /* USER CODE BEGIN ADC1_Init 1 */
 
   /* USER CODE END ADC1_Init 1 */
@@ -399,20 +413,34 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T15_TRGO;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
-  hadc1.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DR;
+  hadc1.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DMA_CIRCULAR;
   hadc1.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_8;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_5CYCLE;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN ADC1_Init 2 */
 
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
-  ADC_ChannelConfTypeDef sConfig = {0};
   sConfig.Channel = ADC_CHANNEL_8;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_391CYCLES_5;
@@ -461,7 +489,7 @@ static void MX_DAC1_Init(void)
   sConfig.DAC_DMADoubleDataMode = DISABLE;
   sConfig.DAC_SignedFormat = DISABLE;
   sConfig.DAC_SampleAndHold = DAC_SAMPLEANDHOLD_DISABLE;
-  sConfig.DAC_Trigger = DAC_TRIGGER_NONE;
+  sConfig.DAC_Trigger = DAC_TRIGGER_T2_TRGO;
   sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_DISABLE;
   sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_EXTERNAL;
   sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
@@ -480,6 +508,36 @@ static void MX_DAC1_Init(void)
   /* USER CODE BEGIN DAC1_Init 2 */
 
   /* USER CODE END DAC1_Init 2 */
+
+}
+
+/**
+  * @brief GPDMA1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPDMA1_Init(void)
+{
+
+  /* USER CODE BEGIN GPDMA1_Init 0 */
+
+  /* USER CODE END GPDMA1_Init 0 */
+
+  /* Peripheral clock enable */
+  __HAL_RCC_GPDMA1_CLK_ENABLE();
+
+  /* GPDMA1 interrupt Init */
+    HAL_NVIC_SetPriority(GPDMA1_Channel0_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(GPDMA1_Channel0_IRQn);
+    HAL_NVIC_SetPriority(GPDMA1_Channel1_IRQn, 1, 0);
+    HAL_NVIC_EnableIRQ(GPDMA1_Channel1_IRQn);
+
+  /* USER CODE BEGIN GPDMA1_Init 1 */
+
+  /* USER CODE END GPDMA1_Init 1 */
+  /* USER CODE BEGIN GPDMA1_Init 2 */
+
+  /* USER CODE END GPDMA1_Init 2 */
 
 }
 
@@ -548,7 +606,7 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
   {
@@ -559,53 +617,6 @@ static void MX_TIM2_Init(void)
   __HAL_TIM_SET_AUTORELOAD(&htim2, getTIMER_DAC(frecuencias_dac[freq_idx]));
 
   /* USER CODE END TIM2_Init 2 */
-
-}
-
-/**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM3_Init(void)
-{
-
-  /* USER CODE BEGIN TIM3_Init 0 */
-
-  /* USER CODE END TIM3_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM3_Init 1 */
-
-  /* USER CODE END TIM3_Init 1 */
-  htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 199;
-  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 199;
-  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM3_Init 2 */
-
-  __HAL_TIM_SET_AUTORELOAD(&htim3, PERIOD_TIMER_ADC);
-
-  /* USER CODE END TIM3_Init 2 */
 
 }
 
@@ -655,6 +666,55 @@ static void MX_TIM4_Init(void)
 }
 
 /**
+  * @brief TIM15 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM15_Init(void)
+{
+
+  /* USER CODE BEGIN TIM15_Init 0 */
+
+  /* USER CODE END TIM15_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM15_Init 1 */
+
+  /* USER CODE END TIM15_Init 1 */
+  htim15.Instance = TIM15;
+  htim15.Init.Prescaler = 199;
+  htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim15.Init.Period = 199;
+  htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim15.Init.RepetitionCounter = 0;
+  htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim15) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim15, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim15, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM15_Init 2 */
+
+  // Seteo la frecuencia de muestreo del ADC. Lo hago aca para poder cambiarla por SW
+  __HAL_TIM_SET_AUTORELOAD(&htim15, PERIOD_TIMER_ADC);
+
+  /* USER CODE END TIM15_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -687,12 +747,20 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
+{
+    buffer_completo = 1;
+    buffer_actual = 1; // primera mitad lista
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+    buffer_completo = 1;
+    buffer_actual = 0; // segunda mitad lista
+}
+
 void BSP_PB_Callback(Button_TypeDef Button)
-{/*
-    if(Button == BUTTON_USER)
-    {
-        signal_idx = (signal_idx + 1) % 3;
-    }*/
+{
     if(Button == BUTTON_USER)
         {
             boton_press_tick = HAL_GetTick();
@@ -736,42 +804,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
   if(htim->Instance == TIM2)
   {
-      static uint8_t idx = 0;
-      HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, signals[signal_idx][idx]);
-      idx++;
-      if(idx >= 128) idx = 0;
-  }
-
-  if(htim->Instance == TIM3)
-  {
-	  static uint8_t idx = 0;
-
-	  /* ADC */
-	  HAL_ADC_Start(&hadc1);		// Iniciar conversión
-	  HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY); // Esperar a que termine
-	  uint32_t raw = HAL_ADC_GetValue(&hadc1);
-	  HAL_ADC_Stop(&hadc1);
-
-	  if(buffer_actual == 0){
-		  muestras_0[idx] = raw;
-	  }
-	  else{
-		  muestras_1[idx] = raw;
-	  }
-	  idx++;
-	  if(idx == 128){
-		  idx=0;
-		  buffer_completo = 1;
-		  buffer_actual = (buffer_actual == 0)? 1 : 0;
-	  }
+	 // Este timer controla el DMA del DAC
   }
 
   if(htim->Instance == TIM4)
   {
+	  // Este timer es para llevar el cronometro interrumpe una vez por segundo
 	  tiempo++;
 	  temp_flag=1;
   }
-
+  if(htim->Instance == TIM15)
+  {
+	  // Este timer controla el DMA del ADC
+  }
 
 
   /* USER CODE END Callback 1 */
