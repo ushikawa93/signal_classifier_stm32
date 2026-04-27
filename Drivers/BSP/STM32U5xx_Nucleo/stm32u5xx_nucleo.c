@@ -701,6 +701,7 @@ PUTCHAR_PROTOTYPE
   HAL_UART_Transmit(&hcom_uart [COM_ActiveLogPort], (uint8_t *) &ch, 1, COM_POLL_TIMEOUT);
   return ch;
 }
+
 #endif /* USE_COM_LOG */
 #endif /* USE_BSP_COM_FEATURE */
 

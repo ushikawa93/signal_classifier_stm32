@@ -36,20 +36,60 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define DMA 0
+#define TIMER_INTERRUPT 1
+
 #define CAPTURE_MODE 0
 #define CLASSIFY_MODE 1
 #define CRONOMETER_MODE 2
 
 #define MODE CAPTURE_MODE
+#define DAC_MODE TIMER_INTERRUPT
+#define ADC_MODE TIMER_INTERRUPT
 
 // Valores para DAC y ADC:
 #define ADC_SAMP_FREQ 100
 #define DAC_SIGNAL_FREQ_INICIAL 4
 #define PRESCALER 199
 #define CLK 4000000
+#define NIVEL_RUIDO 0 // 0 a 4095
 
 #define N_FREQS 4
 #define PERIOD_TIMER_ADC  (CLK / ((PRESCALER + 1) * ADC_SAMP_FREQ)) - 1
+
+/*----------------------------------------------------------------------------*/
+// ESTO SIRVE PARA QUE FUNCIONE EL SCANF!!!
+#ifdef __GNUC__
+#define GETCHAR_PROTOTYPE int __io_getchar(void)
+#else
+#define GETCHAR_PROTOTYPE int fgetc(FILE *f)
+#endif
+
+
+GETCHAR_PROTOTYPE
+{
+  uint8_t ch = 0;
+
+  __HAL_UART_CLEAR_OREFLAG(&hcom_uart[COM1]);
+
+  HAL_UART_Receive(&hcom_uart[COM1], &ch, 1, HAL_MAX_DELAY);
+  HAL_UART_Transmit(&hcom_uart[COM1], &ch, 1, HAL_MAX_DELAY);
+
+  return ch;
+}
+int _read(int file, char *ptr, int len)
+{
+  (void)file;
+
+  uint8_t ch;
+  HAL_UART_Receive(&hcom_uart[COM1], &ch, 1, HAL_MAX_DELAY);
+
+  *ptr = ch;
+  return 1;
+}
+
+/*----------------------------------------------------------------------------*/
+
 
 /* USER CODE END PD */
 
@@ -71,6 +111,8 @@ DAC_HandleTypeDef hdac1;
 DMA_NodeTypeDef Node_GPDMA1_Channel0;
 DMA_QListTypeDef List_GPDMA1_Channel0;
 DMA_HandleTypeDef handle_GPDMA1_Channel0;
+
+RNG_HandleTypeDef hrng;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim4;
@@ -100,7 +142,23 @@ const uint32_t frecuencias_dac[] = {1, 2, 8, 16};
 volatile uint8_t freq_idx = 0; // arranca en 4Hz (índice 1)
 
 // Periodo del timer del dac considerando 128 Muestras x ciclo
-int getTIMER_DAC(int signal_freq){  return (CLK / ((PRESCALER + 1) * signal_freq * 128)) - 1;}
+int getTIMER_DAC ( int signal_freq )
+{
+	return (CLK / ((PRESCALER + 1) * signal_freq * 128)) - 1;
+}
+
+
+int getRandom (int amplitud)
+{
+	if(amplitud == 0){return 0;}
+	uint32_t rnd;
+	HAL_RNG_GenerateRandomNumber(&hrng, &rnd);
+	return (rnd % amplitud) - amplitud/2;
+}
+
+
+
+
 
 /* USER CODE END PV */
 
@@ -115,6 +173,7 @@ static void MX_TIM4_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_ICACHE_Init(void);
 static void MX_TIM15_Init(void);
+static void MX_RNG_Init(void);
 /* USER CODE BEGIN PFP */
 
 static char * convertir_a_tiempo(int s);
@@ -165,6 +224,7 @@ int main(void)
   MX_TIM2_Init();
   MX_ICACHE_Init();
   MX_TIM15_Init();
+  MX_RNG_Init();
   /* USER CODE BEGIN 2 */
 
   neai_classification_init();
@@ -195,29 +255,49 @@ int main(void)
 
   printf("\n\n\r --------- Comienzo de programa --------- \n\n\r");
 
-  // DAC: Configurado por DMA
-  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1,
-                    (uint32_t*)signals[signal_idx], 128, DAC_ALIGN_12B_R);
-  HAL_TIM_Base_Start(&htim2);
 
-  // ADC: configurado por DMA
+  /* SECCION DAC CONFIGURADO POR INTERRUPCIONES O POR DMA */
+  #if DAC_MODE == DMA
+    // DAC: Configurado por DMA
+	HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1,(uint32_t*)signals[signal_idx], 128, DAC_ALIGN_12B_R);
+	HAL_TIM_Base_Start(&htim2);
+
+  #elif DAC_MODE == TIMER_INTERRUPT
+	HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+	HAL_TIM_Base_Start_IT(&htim2);
+  #endif
+
+  /* SECCION ADC CONFIGURADO POR INTERRUPCIONES O POR DMA */
   buffer_actual = 0;
   buffer_completo = 0;
 
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buf, 256);
-  HAL_TIM_Base_Start(&htim15);
+  #if ADC_MODE == DMA
+	// ADC: configurado por DMA
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buf, 256);
+	HAL_TIM_Base_Start(&htim15);
 
+  #elif ADC_MODE == TIMER_INTERRUPT
+	HAL_TIM_Base_Start_IT(&htim15);
+  #endif
 
-  // Cronometro por interrupciones:
+  /* TIMER CONFIGURADO POR INTERRUPCIONES */
   tiempo = 0;
   temp_flag = 0;
   HAL_TIM_Base_Start_IT(&htim4);
+
+  char opcion = 'n';
+  do{
+	  printf("Ingrese s para arrancar: ");
+	  scanf("%c",&opcion);
+	  printf("\n\r Usted ingreso: %d\n\r",opcion);
+  }while(opcion != 's');
 
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
 
 	/* MODO DE CAPTURA DE DATOS... Para entrenar NanoEdgeAI */
 	#if MODE == CAPTURE_MODE
@@ -239,6 +319,7 @@ int main(void)
 
 
 	/* MODO DE CLASIFICACION... Clasifica datos con las librerias generadas en NanoEdgeAI */
+
 	#elif MODE == CLASSIFY_MODE
 		if(buffer_completo == 1){
 			int id_class;
@@ -288,9 +369,10 @@ int main(void)
 			// Pulsacion larga cambia forma de onda
 
 			signal_idx = (signal_idx + 1) % 3;
-			HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-			HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1,
-			                  (uint32_t*)signals[signal_idx], 128, DAC_ALIGN_12B_R);
+			#if DAC_MODE == DMA
+				HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+				HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1,(uint32_t*)signals[signal_idx], 128, DAC_ALIGN_12B_R);
+			#endif
 		}
 		else
 		{
@@ -320,16 +402,17 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE4) != HAL_OK)
+  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE3) != HAL_OK)
   {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI
-                              |RCC_OSCILLATORTYPE_MSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48|RCC_OSCILLATORTYPE_HSI
+                              |RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
@@ -441,16 +524,15 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
-  sConfig.Channel = ADC_CHANNEL_8;
-  sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_391CYCLES_5;
-  sConfig.SingleDiff = ADC_SINGLE_ENDED;
-  sConfig.OffsetNumber = ADC_OFFSET_NONE;
-  sConfig.Offset = 0;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
+
+	#if ADC_MODE == TIMER_INTERRUPT
+		hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+		hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+		if (HAL_ADC_Init(&hadc1) != HAL_OK)
+		{
+		  Error_Handler();
+		}
+	#endif
 
   /* USER CODE END ADC1_Init 2 */
 
@@ -570,6 +652,33 @@ static void MX_ICACHE_Init(void)
   /* USER CODE BEGIN ICACHE_Init 2 */
 
   /* USER CODE END ICACHE_Init 2 */
+
+}
+
+/**
+  * @brief RNG Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RNG_Init(void)
+{
+
+  /* USER CODE BEGIN RNG_Init 0 */
+
+  /* USER CODE END RNG_Init 0 */
+
+  /* USER CODE BEGIN RNG_Init 1 */
+
+  /* USER CODE END RNG_Init 1 */
+  hrng.Instance = RNG;
+  hrng.Init.ClockErrorDetection = RNG_CED_ENABLE;
+  if (HAL_RNG_Init(&hrng) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RNG_Init 2 */
+
+  /* USER CODE END RNG_Init 2 */
 
 }
 
@@ -804,7 +913,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
   if(htim->Instance == TIM2)
   {
-	 // Este timer controla el DMA del DAC
+	// Este timer controla el  DAC
+	// Si esta configurado por DMA en realidad la interrupcion no hace nada
+
+	#if DAC_MODE == TIMER_INTERRUPT
+	  static uint8_t idx = 0;
+
+	  int32_t numero= signals[signal_idx][idx]+getRandom(NIVEL_RUIDO);
+	  uint32_t numero_saturacion = (numero>4096) ? 4095 : ((numero<0)? 0 : numero );
+
+	  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R,numero_saturacion);
+	  idx++;
+	  if(idx >= 128) idx = 0;
+    #endif
   }
 
   if(htim->Instance == TIM4)
@@ -816,6 +937,31 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if(htim->Instance == TIM15)
   {
 	  // Este timer controla el DMA del ADC
+
+	#if ADC_MODE == TIMER_INTERRUPT
+
+	  static uint16_t idx = 0;
+	  /* ADC */
+	  HAL_ADC_Start(&hadc1);		// Iniciar conversión
+	  HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY); // Esperar a que termine
+	  uint32_t raw = HAL_ADC_GetValue(&hadc1);
+	  HAL_ADC_Stop(&hadc1);
+	  adc_buf[idx] = raw;
+	  idx++;
+	  if(idx == 128)
+	  {
+		  buffer_actual = 1;
+		  buffer_completo = 1;
+	  }
+	  else if (idx == 256)
+	  {
+		  buffer_actual = 0;
+		  buffer_completo = 1;
+		  idx = 0;
+	  }
+
+	#endif
+
   }
 
 
