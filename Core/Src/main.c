@@ -43,7 +43,7 @@
 #define CLASSIFY_MODE 1
 #define CRONOMETER_MODE 2
 
-#define MODE CAPTURE_MODE
+// MODE ya no se define con #define fijo — se selecciona en runtime desde el menu
 #define DAC_MODE TIMER_INTERRUPT
 #define ADC_MODE TIMER_INTERRUPT
 
@@ -52,7 +52,7 @@
 #define DAC_SIGNAL_FREQ_INICIAL 4
 #define PRESCALER 199
 #define CLK 4000000
-#define NIVEL_RUIDO 0 // 0 a 4095
+// NIVEL_RUIDO se configura en runtime desde el menu (opcion 4) — ver variable global nivel_ruido
 
 #define N_FREQS 4
 #define PERIOD_TIMER_ADC  (CLK / ((PRESCALER + 1) * ADC_SAMP_FREQ)) - 1
@@ -130,12 +130,19 @@ volatile uint8_t signal_idx = 0; // 0, 1 o 2
 volatile uint32_t boton_press_tick = 0;
 volatile uint8_t boton_presionado = 0;
 
+// Modo de operacion seleccionado en runtime por menu UART
+volatile uint8_t modo_actual = 255; // 255 = sin modo seleccionado
+
+// Nivel de ruido configurable desde el menu (0 a 4095). Usada en ISR de TIM2.
+volatile uint32_t nivel_ruido = 100;
+
 
 uint32_t adc_buf[256];
 uint32_t tiempo;
 uint32_t temp_flag;
 uint8_t buffer_actual;
 uint8_t buffer_completo;
+int32_t buffers_restantes = 0; // Para modo captura: cuantos buffers quedan por adquirir
 
 
 const uint32_t frecuencias_dac[] = {1, 2, 8, 16};
@@ -177,6 +184,8 @@ static void MX_RNG_Init(void);
 /* USER CODE BEGIN PFP */
 
 static char * convertir_a_tiempo(int s);
+static void menu_principal(void);
+static uint8_t uart_getchar_timeout(uint32_t timeout_ms);
 
 /* USER CODE END PFP */
 
@@ -285,12 +294,8 @@ int main(void)
   temp_flag = 0;
   HAL_TIM_Base_Start_IT(&htim4);
 
-  char opcion = 'n';
-  do{
-	  printf("Ingrese s para arrancar: ");
-	  scanf("%c",&opcion);
-	  printf("\n\r Usted ingreso: %d\n\r",opcion);
-  }while(opcion != 's');
+  // Mostrar menu y esperar seleccion de modo
+  menu_principal();
 
   while (1)
   {
@@ -300,8 +305,8 @@ int main(void)
 
 
 	/* MODO DE CAPTURA DE DATOS... Para entrenar NanoEdgeAI */
-	#if MODE == CAPTURE_MODE
-
+	if(modo_actual == CAPTURE_MODE)
+	{
 		if(buffer_completo == 1){
 
 		    uint32_t buffer_copia[128];
@@ -315,17 +320,30 @@ int main(void)
 				printf("%lu, ", buffer_copia[i]);
 			}
 			printf("}\n");
+
+			// Descontar buffer y salir al menu si terminamos
+			buffers_restantes--;
+			if(buffers_restantes == 0){
+				printf("\r\n--- Adquisicion completa. Volviendo al menu ---\r\n");
+				menu_principal();
+			}
+		}
+	}
+
+	/* MODO DE CLASIFICACION */
+	else if(modo_actual == CLASSIFY_MODE)
+	{
+		// Verificar si llego una tecla (no bloqueante, timeout 0)
+		uint8_t tecla = uart_getchar_timeout(0);
+		if(tecla == 'q' || tecla == 'Q'){
+			printf("\r\n--- Clasificacion detenida. Volviendo al menu ---\r\n");
+			menu_principal();
 		}
 
-
-	/* MODO DE CLASIFICACION... Clasifica datos con las librerias generadas en NanoEdgeAI */
-
-	#elif MODE == CLASSIFY_MODE
 		if(buffer_completo == 1){
 			int id_class;
 			float similarities[neai_get_number_of_classes()];
 			float input_float[128];
-
 
 			if(buffer_actual == 1)
 			{
@@ -342,20 +360,29 @@ int main(void)
 			}
 			char *t = convertir_a_tiempo(tiempo);
 			neai_classification(input_float,similarities,&id_class);
-			printf("\r%s: Señal clasificada como %s con %d%% de confianza    ", t, neai_get_class_name(id_class), (int)(similarities[id_class] * 100));
+			printf("\r%s: Señal clasificada como %s con %d%% de confianza  [q=salir]     ", t, neai_get_class_name(id_class), (int)(similarities[id_class] * 100));
 			fflush(stdout);
 			buffer_completo = 0;
 		}
+	}
 
-	/* CRONOMETRO: Modo de cronometro (lo primero que hize para probar interrupciones y printfs */
-	#elif MODE == CRONOMETER_MODE
+	/* CRONOMETRO */
+	else if(modo_actual == CRONOMETER_MODE)
+	{
+		// Verificar si llego una tecla (no bloqueante, timeout 0)
+		uint8_t tecla = uart_getchar_timeout(0);
+		if(tecla == 'q' || tecla == 'Q'){
+			printf("\r\n--- Cronometro detenido. Volviendo al menu ---\r\n");
+			menu_principal();
+		}
+
 		if(temp_flag == 1){
 			char *t = convertir_a_tiempo(tiempo);
-			printf("\r%s", t);
+			printf("\r%s  [q=salir]                                                        ", t);
 			fflush(stdout);
 			temp_flag=0;
 		}
-	#endif
+	}
 
 
 	// Detección de pulsación corta vs larga
@@ -890,6 +917,136 @@ static char* convertir_a_tiempo (int s)
 
 }
 
+// Recibe un caracter por UART con timeout en ms. Retorna 0 si no llego nada.
+static uint8_t uart_getchar_timeout(uint32_t timeout_ms)
+{
+    uint8_t ch = 0;
+    HAL_StatusTypeDef status = HAL_UART_Receive(&hcom_uart[COM1], &ch, 1, timeout_ms);
+    if(status == HAL_OK){
+        return ch;
+    }
+    return 0;
+}
+
+// Menu principal bloqueante — sale cuando el usuario selecciona un modo valido
+static void menu_principal(void)
+{
+    modo_actual = 255; // sin modo
+    buffer_completo = 0; // descartar buffers pendientes
+
+    while(1)
+    {
+        printf("\r\n");
+        printf("========================================\r\n");
+        printf("   MENU PRINCIPAL\r\n");
+        printf("========================================\r\n");
+        printf("  1 - Adquisicion (captura de datos)\r\n");
+        printf("  2 - Clasificacion\r\n");
+        printf("  3 - Cronometro\r\n");
+        printf("  4 - Configurar nivel de ruido (actual: %lu)\r\n", nivel_ruido);
+        printf("========================================\r\n");
+        printf("Seleccione una opcion: ");
+        fflush(stdout);
+
+        // Esperar tecla (bloqueante, esta bien porque estamos en el menu)
+        uint8_t opcion = uart_getchar_timeout(HAL_MAX_DELAY);
+        printf("%c\r\n", opcion); // echo
+
+        if(opcion == '1')
+        {
+            // Pedir cantidad de buffers a adquirir
+            printf("\r\nCantidad de buffers a adquirir (1-999): ");
+            fflush(stdout);
+
+            char input[8];
+            int n = 0;
+            while(n < 7)
+            {
+                uint8_t c = uart_getchar_timeout(HAL_MAX_DELAY);
+                if(c == '\r' || c == '\n') break;
+                if(c == 8 || c == 127) { // backspace
+                    if(n > 0){ n--; printf("\b \b"); fflush(stdout); }
+                    continue;
+                }
+                if(c >= '0' && c <= '9'){
+                    input[n++] = c;
+                    printf("%c", c); fflush(stdout);
+                }
+            }
+            input[n] = '\0';
+            printf("\r\n");
+
+            int cantidad = atoi(input);
+            if(cantidad <= 0){
+                printf("Cantidad invalida. Intente de nuevo.\r\n");
+                continue;
+            }
+
+            buffers_restantes = cantidad;
+            buffer_completo = 0;
+            printf("Adquiriendo %d buffers... (iniciando)\r\n", cantidad);
+            modo_actual = CAPTURE_MODE;
+            return;
+        }
+        else if(opcion == '2')
+        {
+            printf("\r\nModo Clasificacion activo. Presione 'q' para salir.\r\n");
+            buffer_completo = 0;
+            modo_actual = CLASSIFY_MODE;
+            return;
+        }
+        else if(opcion == '3')
+        {
+            printf("\r\nModo Cronometro activo. Presione 'q' para salir.\r\n");
+            temp_flag = 0;
+            modo_actual = CRONOMETER_MODE;
+            return;
+        }
+        else if(opcion == '4')
+        {
+            printf("\r\nNivel de ruido actual: %lu (0 = sin ruido, 4095 = maximo)\r\n", nivel_ruido);
+            printf("Nuevo valor (0-4095): ");
+            fflush(stdout);
+
+            char input[8];
+            int n = 0;
+            while(n < 7)
+            {
+                uint8_t c = uart_getchar_timeout(HAL_MAX_DELAY);
+                if(c == '\r' || c == '\n') break;
+                if(c == 8 || c == 127) { // backspace
+                    if(n > 0){ n--; printf("\b \b"); fflush(stdout); }
+                    continue;
+                }
+                if(c >= '0' && c <= '9'){
+                    input[n++] = c;
+                    printf("%c", c); fflush(stdout);
+                }
+            }
+            input[n] = '\0';
+            printf("\r\n");
+
+            if(n == 0){
+                printf("Sin cambios.\r\n");
+            } else {
+                int valor = atoi(input);
+                if(valor < 0 || valor > 4095){
+                    printf("Valor invalido. Debe estar entre 0 y 4095.\r\n");
+                } else {
+                    nivel_ruido = (uint32_t)valor;
+                    printf("Nivel de ruido actualizado a %lu.\r\n", nivel_ruido);
+                }
+            }
+            // Volver a mostrar el menu sin salir del while
+            continue;
+        }
+        else
+        {
+            printf("Opcion no valida.\r\n");
+        }
+    }
+}
+
 /* USER CODE END 4 */
 
 /**
@@ -919,8 +1076,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	#if DAC_MODE == TIMER_INTERRUPT
 	  static uint8_t idx = 0;
 
-	  int32_t numero= signals[signal_idx][idx]+getRandom(NIVEL_RUIDO);
-	  uint32_t numero_saturacion = (numero>4096) ? 4095 : ((numero<0)? 0 : numero );
+	  int32_t numero = (int32_t)signals[signal_idx][idx] + (int32_t)getRandom(nivel_ruido);
+	  uint32_t numero_saturacion = (numero>4095) ? 4095 : ((numero<0)? 0 : numero );
 
 	  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R,numero_saturacion);
 	  idx++;
