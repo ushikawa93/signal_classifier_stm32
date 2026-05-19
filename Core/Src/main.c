@@ -59,34 +59,21 @@
 
 /*----------------------------------------------------------------------------*/
 // ESTO SIRVE PARA QUE FUNCIONE EL SCANF!!!
-#ifdef __GNUC__
-#define GETCHAR_PROTOTYPE int __io_getchar(void)
-#else
-#define GETCHAR_PROTOTYPE int fgetc(FILE *f)
-#endif
 
-
-GETCHAR_PROTOTYPE
-{
-  uint8_t ch = 0;
-
-  __HAL_UART_CLEAR_OREFLAG(&hcom_uart[COM1]);
-
-  HAL_UART_Receive(&hcom_uart[COM1], &ch, 1, HAL_MAX_DELAY);
-  HAL_UART_Transmit(&hcom_uart[COM1], &ch, 1, HAL_MAX_DELAY);
-
-  return ch;
-}
 int _read(int file, char *ptr, int len)
 {
-  (void)file;
+    (void)file;
 
-  uint8_t ch;
-  HAL_UART_Receive(&hcom_uart[COM1], &ch, 1, HAL_MAX_DELAY);
+    uint8_t ch;
 
-  *ptr = ch;
-  return 1;
+    __HAL_UART_CLEAR_OREFLAG(&hcom_uart[COM1]);
+    HAL_UART_Receive(&hcom_uart[COM1], &ch, 1, HAL_MAX_DELAY);
+    HAL_UART_Transmit(&hcom_uart[COM1], &ch, 1, HAL_MAX_DELAY);
+
+    *ptr = ch;
+    return 1;
 }
+
 
 /*----------------------------------------------------------------------------*/
 
@@ -162,8 +149,6 @@ int getRandom (int amplitud)
 	HAL_RNG_GenerateRandomNumber(&hrng, &rnd);
 	return (rnd % amplitud) - amplitud/2;
 }
-
-
 
 
 
@@ -319,7 +304,7 @@ int main(void)
 			for(int i =0; i < 128;i++){
 				printf("%lu, ", buffer_copia[i]);
 			}
-			printf("}\n");
+			printf("}\r\n");
 
 			// Descontar buffer y salir al menu si terminamos
 			buffers_restantes--;
@@ -360,7 +345,8 @@ int main(void)
 			}
 			char *t = convertir_a_tiempo(tiempo);
 			neai_classification(input_float,similarities,&id_class);
-			printf("\r%s: Señal clasificada como %s con %d%% de confianza  [q=salir]     ", t, neai_get_class_name(id_class), (int)(similarities[id_class] * 100));
+			printf("\r\n%s: Señal clasificada como %s con %d%% de confianza  [q=salir]     ", t, neai_get_class_name(id_class), (int)(similarities[id_class] * 100));
+
 			fflush(stdout);
 			buffer_completo = 0;
 		}
@@ -378,7 +364,7 @@ int main(void)
 
 		if(temp_flag == 1){
 			char *t = convertir_a_tiempo(tiempo);
-			printf("\r%s  [q=salir]                                                        ", t);
+			printf("\r\n%s  [q=salir]      ", t);
 			fflush(stdout);
 			temp_flag=0;
 		}
@@ -918,6 +904,7 @@ static char* convertir_a_tiempo (int s)
 }
 
 // Recibe un caracter por UART con timeout en ms. Retorna 0 si no llego nada.
+// Para recibir bloqueante uso scanf pero esto es necesario en casos que quiero trabajar sin bloquear todo!
 static uint8_t uart_getchar_timeout(uint32_t timeout_ms)
 {
     uint8_t ch = 0;
@@ -949,44 +936,32 @@ static void menu_principal(void)
         fflush(stdout);
 
         // Esperar tecla (bloqueante, esta bien porque estamos en el menu)
-        uint8_t opcion = uart_getchar_timeout(HAL_MAX_DELAY);
-        printf("%c\r\n", opcion); // echo
+        uint8_t opcion;
+        scanf("%c",&opcion);
+        //printf("%c\r\n", opcion); // echo
 
         if(opcion == '1')
         {
+
             // Pedir cantidad de buffers a adquirir
-            printf("\r\nCantidad de buffers a adquirir (1-999): ");
-            fflush(stdout);
 
-            char input[8];
-            int n = 0;
-            while(n < 7)
-            {
-                uint8_t c = uart_getchar_timeout(HAL_MAX_DELAY);
-                if(c == '\r' || c == '\n') break;
-                if(c == 8 || c == 127) { // backspace
-                    if(n > 0){ n--; printf("\b \b"); fflush(stdout); }
-                    continue;
-                }
-                if(c >= '0' && c <= '9'){
-                    input[n++] = c;
-                    printf("%c", c); fflush(stdout);
-                }
-            }
-            input[n] = '\0';
-            printf("\r\n");
+        	printf("\r\nCantidad de buffers a adquirir (1-999): ");
+        	int cantidad,res;
+        	do{
+        		res= scanf("%d", &cantidad);
+        		if(res != 1 || cantidad <=0 ){
+        			printf("Cantidad invalida, intente de nuevo.\r\n");
 
-            int cantidad = atoi(input);
-            if(cantidad <= 0){
-                printf("Cantidad invalida. Intente de nuevo.\r\n");
-                continue;
-            }
+        		}
+        		fflush(stdin);	// Se supone que no hay que usar esto pero bueno asi anda...
+        	}while(res != 1 || cantidad <=0 );
 
             buffers_restantes = cantidad;
             buffer_completo = 0;
             printf("Adquiriendo %d buffers... (iniciando)\r\n", cantidad);
             modo_actual = CAPTURE_MODE;
             return;
+
         }
         else if(opcion == '2')
         {
@@ -1008,35 +983,22 @@ static void menu_principal(void)
             printf("Nuevo valor (0-4095): ");
             fflush(stdout);
 
-            char input[8];
-            int n = 0;
-            while(n < 7)
-            {
-                uint8_t c = uart_getchar_timeout(HAL_MAX_DELAY);
-                if(c == '\r' || c == '\n') break;
-                if(c == 8 || c == 127) { // backspace
-                    if(n > 0){ n--; printf("\b \b"); fflush(stdout); }
-                    continue;
-                }
-                if(c >= '0' && c <= '9'){
-                    input[n++] = c;
-                    printf("%c", c); fflush(stdout);
-                }
-            }
-            input[n] = '\0';
-            printf("\r\n");
+            int cantidad,res;
+            do{
+				 res= scanf("%d", &cantidad);
+				 if(res != 1 || cantidad <=0 ){
+					 printf("Cantidad invalida, intente de nuevo.\r\n");
+				 }
+				 fflush(stdin);	// Se supone que no hay que usar esto pero bueno asi anda...
+            }while(res != 1 || cantidad <0 );
 
-            if(n == 0){
-                printf("Sin cambios.\r\n");
-            } else {
-                int valor = atoi(input);
-                if(valor < 0 || valor > 4095){
-                    printf("Valor invalido. Debe estar entre 0 y 4095.\r\n");
-                } else {
-                    nivel_ruido = (uint32_t)valor;
-                    printf("Nivel de ruido actualizado a %lu.\r\n", nivel_ruido);
-                }
+            if(cantidad > 0 && cantidad < 4096){
+            	nivel_ruido = (uint32_t)cantidad;
+            	printf("Nivel de ruido actualizado a %lu.\r\n", nivel_ruido);
+            }else{
+            	printf("Valor invalido. Debe estar entre 0 y 4095.\r\n");
             }
+
             // Volver a mostrar el menu sin salir del while
             continue;
         }
